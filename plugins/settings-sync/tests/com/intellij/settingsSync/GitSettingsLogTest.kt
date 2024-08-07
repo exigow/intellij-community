@@ -3,6 +3,8 @@ package com.intellij.settingsSync
 import com.intellij.idea.TestFor
 import com.intellij.openapi.components.SettingsCategory
 import com.intellij.openapi.util.Disposer
+import com.intellij.settingsSync.SettingsProviderTest.TestSettingsProvider
+import com.intellij.settingsSync.SettingsProviderTest.TestState
 import com.intellij.settingsSync.SettingsSnapshot.AppInfo
 import com.intellij.testFramework.ApplicationRule
 import com.intellij.testFramework.DisposableRule
@@ -379,40 +381,41 @@ internal class GitSettingsLogTest {
   }
 
   @Test
-  fun `merge conflict in plugins-json should be resolved smartly`() {
+  @TestFor(issues = ["IJPL-13108"])
+  fun `merge conflict in plugins-json should be resolved manually`() {
     val editorXml = (configDir / "options" / "editor.xml").write("Editor Initial")
     val settingsLog = initializeGitSettingsLog(editorXml)
+    val settingsProvider = TestSettingsProvider()
 
     settingsLog.applyIdeState(
       settingsSnapshot {
         plugin("A", true)
+        provided(settingsProvider.id, TestState("Local settings state"))
       }, "Local"
     )
     settingsLog.applyCloudState(
       settingsSnapshot {
         plugin("B", true)
-      }, "Remote"
-    )
-    settingsLog.applyIdeState(
-      settingsSnapshot {
-        fileState("options/editor.xml", "Editor IDE")
-      }, "Local"
-    )
-    settingsLog.applyCloudState(
-      settingsSnapshot {
-        fileState("options/laf.xml", "LaF Cloud")
+        provided(settingsProvider.id, TestState("Remote settings state"))
       }, "Remote"
     )
 
     settingsLog.advanceMaster()
 
-    val snapshot = settingsLog.collectCurrentSnapshot()
-    snapshot.assertSettingsSnapshot {
-      fileState("options/editor.xml", "Editor IDE")
-      fileState("options/laf.xml", "LaF Cloud")
-      plugin("A", true)
-      plugin("B", true)
-    }
+    val expectedPluginsText = """
+      {
+          "plugins": {
+      <<<<<<< HEAD
+              "A": {}
+      =======
+              "B": {}
+      >>>>>>> refs/heads/cloud
+          }
+      }
+    """.trimIndent()
+    assertEquals(expectedPluginsText, (configDir / "settingsSync" / ".metainfo" / "plugins.json").readText())
+
+    // todo: verify settings providers
   }
 
   @Test

@@ -412,11 +412,16 @@ class GitSettingsLog(private val settingsSyncStorage: Path,
       val cloudBranchTip = getBranchTip(cloud)
 
       val addCommand = git.add()
-      val pluginJsonPath = conflictingFiles.find { it == "$METAINFO_FOLDER/$PLUGINS_FILE" }
-      if (pluginJsonPath != null) {
+
+      // todo read settings providers
+      SettingsProvider.SETTINGS_PROVIDER_EP.forEachExtensionSafe(Consumer {
+        // todo is not working, even when i'm adding test providers in tests -- why?
+        val relativePath = "$METAINFO_FOLDER/${it.id}/${it.fileName}"
+      })
+
+      val pluginJsonPath = "$METAINFO_FOLDER/$PLUGINS_FILE"
+      if (conflictingFiles.any { it == pluginJsonPath }) {
         SettingsSyncEventsStatistics.MERGE_CONFLICT_OCCURRED.log(SettingsSyncEventsStatistics.MergeConflictType.PLUGINS_JSON)
-        val mergedContent = mergePluginJson(pluginJsonPath, ideBranchTip, cloudBranchTip)
-        pluginsFile.write(mergedContent)
         addCommand.addFilepattern(pluginJsonPath)
         conflictingFiles -= pluginJsonPath
       }
@@ -519,13 +524,6 @@ class GitSettingsLog(private val settingsSyncStorage: Path,
                           merger = { base: T?, cloud: T, ide: T ->
                             settingsProvider.mergeStates(base, cloud, ide)
                           })
-  }
-
-  private fun mergePluginJson(pluginJson: String, ideBranchTip: RevCommit, cloudBranchTip: RevCommit): String {
-    return smartMergeFile(pluginJson, ideBranchTip, cloudBranchTip,
-                          deserializer = { json.decodeFromString<SettingsSyncPluginsState>(it) },
-                          serializer = { json.encodeToString(it) },
-                          merger = { base, cloud, ide -> mergePluginStates(base ?: SettingsSyncPluginsState(emptyMap()), cloud, ide) })
   }
 
   private fun <T> smartMergeFile(
